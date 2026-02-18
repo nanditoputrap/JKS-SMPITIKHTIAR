@@ -68,7 +68,6 @@ const App = () => {
   const [passwordInput, setPasswordInput] = useState('');
   const [pendingTeacher, setPendingTeacher] = useState(null);
 
-  // State Notifikasi
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
@@ -167,24 +166,20 @@ const App = () => {
 
   const isKesiswaan = selectedTeacher?.class === 'KESISWAAN';
 
-  // --- LOGIC KELAS AKTIF (DIPERBAIKI) ---
-  // Kita pisahkan dependensi agar tidak auto-reset saat 'teachers' berubah
+  // --- LOGIC KELAS AKTIF ---
   useEffect(() => {
     if (selectedTeacher) {
       if (selectedTeacher.class === 'KESISWAAN') {
         const availableClasses = teachers.filter(t => t.class !== 'KESISWAAN').map(t => t.class);
         const defaultClass = availableClasses.length > 0 ? availableClasses[0] : '';
-        // Set default hanya jika belum ada, atau jika baru login
-        setViewingClass(prev => prev || defaultClass);
-        // Default tab hanya saat login awal
-        setActiveTab(prev => (prev === 'siswa' ? 'pantau_harian' : prev));
+        setViewingClass(defaultClass);
+        setActiveTab('pantau_harian'); 
       } else {
         setViewingClass(selectedTeacher.class);
         setActiveTab('siswa');
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTeacher]); 
+  }, [selectedTeacher, teachers]); 
 
   useEffect(() => {
     setStudentForm(prev => ({ ...prev, class: viewingClass }));
@@ -270,17 +265,11 @@ const App = () => {
     }));
   };
 
-  // UPDATE DATA GURU & KELAS (DIPERBAIKI)
   const handleTeacherDataUpdate = (id, field, value) => {
     if (field === 'class') {
       const oldClass = teachers.find(t => t.id === id)?.class;
       if (oldClass && oldClass !== value) {
-        // Update kelas siswa juga agar tidak hilang
         setStudents(prev => prev.map(s => s.class === oldClass ? { ...s, class: value } : s));
-        // Update viewingClass jika sedang melihat kelas yang diedit
-        if (viewingClass === oldClass) {
-          setViewingClass(value);
-        }
       }
     }
     setTeachers(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
@@ -409,7 +398,6 @@ const App = () => {
       }
     });
 
-    // Hapus data lama untuk tanggal & kelas ini agar tidak duplikat
     const filteredViolations = violations.filter(v => 
         !(v.date === disciplineDate && studentsInClass.some(s => s.id === v.studentId))
     );
@@ -433,6 +421,7 @@ const App = () => {
     let totalPoints = 0;
     records.forEach(r => totalPoints += (r.totalPoints || 0));
 
+    // PERBAIKAN: Gunakan jumlah hari dalam bulan sebagai pembagi (Total Hari Kalender)
     const daysInMonth = getDaysInMonth(monthName);
     
     const maxDailyPoints = getMaxDailyPoints(student.gender);
@@ -467,17 +456,6 @@ const App = () => {
     return itemCounts;
   };
 
-  const getEffectiveDaysCount = (monthName, className) => {
-      const records = violations.filter(v => {
-        const student = students.find(s => s.id === v.studentId);
-        if (!student || student.class !== className) return false;
-        const d = new Date(v.date);
-        const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-        return months[d.getMonth()] === monthName;
-      });
-      return [...new Set(records.map(r => r.date))].length || 0; 
-  };
-
   const getMonthlyClassItemStats = (monthName) => {
     const studentsInClass = getFilteredStudents();
     const itemStats = {};
@@ -489,6 +467,7 @@ const App = () => {
     return itemStats;
   };
 
+  // --- HELPER LAIN ---
   const triggerToast = (message) => {
     setToastMessage(message);
     setShowToast(true);
@@ -1050,7 +1029,8 @@ const App = () => {
                                 <div className="[writing-mode:vertical-rl] rotate-180 h-24 mx-auto whitespace-nowrap text-[7px] leading-tight">{ind.label}</div>
                               </th>
                             ))}
-                            <th className="border border-slate-300 px-1 py-1 text-center bg-blue-100 font-bold">TOTAL</th>
+                            {/* TOTAL HEADER (Removed Poin) */}
+                            <th rowSpan="2" className="border border-slate-300 px-1 py-1 text-center bg-blue-100 font-bold align-middle w-10">% TOTAL</th>
                           </tr>
                           <tr className="bg-slate-50 text-slate-700 text-[7px]">
                              {disciplineIndicators.map((_, i) => (
@@ -1059,19 +1039,16 @@ const App = () => {
                                   <th className="border border-slate-300 px-0.5 py-0.5 text-center w-5">%</th>
                                </React.Fragment>
                              ))}
-                             {/* Only Persentase */}
-                             <th className="border border-slate-300 px-1 py-0.5 text-center w-10 bg-blue-50 font-bold">%</th>
                           </tr>
                         </thead>
                         <tbody>
                           {getFilteredStudents().map((s, idx) => {
                             const studentCounts = getMonthlyItemCounts(s.id, reportMonth);
-                            // Hari efektif = Jumlah hari guru mengisi jurnal (denominator persentase)
-                            const effectiveDays = getEffectiveDaysCount(reportMonth, viewingClass);
-                            const effectiveDaysFinal = effectiveDays > 0 ? effectiveDays : 1;
+                            // Hari dalam bulan Kalender
+                            const totalDaysInMonth = getDaysInMonth(reportMonth);
                             
                             // Total stats
-                            const stats = getMonthlyStats(s.id, reportMonth, s.gender); 
+                            const stats = getMonthlyStats(s.id, reportMonth); 
 
                             return (
                               <tr key={s.id}>
@@ -1079,8 +1056,8 @@ const App = () => {
                                 <td className="border border-slate-300 px-2 py-1 font-bold uppercase">{s.name}</td>
                                 {disciplineIndicators.map((ind, i) => {
                                   const count = studentCounts[ind.label] || 0;
-                                  // Persentase per ITEM = (Jumlah Ceklis / Hari Efektif) * 100
-                                  const percentage = Math.round((count / effectiveDaysFinal) * 100);
+                                  // Persentase per ITEM = (Jumlah Ceklis / Total Hari Kalender) * 100
+                                  const percentage = Math.round((count / totalDaysInMonth) * 100);
                                   
                                   const isAkhwatItem = isAkhwatIndicator(ind.label);
                                   const isBlocked = s.gender === 'L' && isAkhwatItem;
@@ -1101,7 +1078,7 @@ const App = () => {
                                     </React.Fragment>
                                   )
                                 })}
-                                {/* Only Total % */}
+                                {/* Removed Total Poin Cell */}
                                 <td className="border border-slate-300 px-1 py-1 text-center font-bold bg-blue-50/30 text-blue-700">
                                    {stats.percentage}%
                                 </td>
@@ -1206,7 +1183,7 @@ const App = () => {
                         </thead>
                         <tbody>
                           {getFilteredStudents().map((s, idx) => {
-                            const stats = getMonthlyStats(s.id, reportMonth, s.gender); 
+                            const stats = getMonthlyStats(s.id, reportMonth); 
                             return (
                               <tr key={s.id}>
                                 <td className="border border-slate-300 px-2 py-1.5 text-center">{idx + 1}</td>
