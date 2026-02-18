@@ -68,6 +68,7 @@ const App = () => {
   const [passwordInput, setPasswordInput] = useState('');
   const [pendingTeacher, setPendingTeacher] = useState(null);
 
+  // State Notifikasi
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
@@ -166,20 +167,9 @@ const App = () => {
 
   const isKesiswaan = selectedTeacher?.class === 'KESISWAAN';
 
-  // --- LOGIC KELAS AKTIF ---
-  useEffect(() => {
-    if (selectedTeacher) {
-      if (selectedTeacher.class === 'KESISWAAN') {
-        const availableClasses = teachers.filter(t => t.class !== 'KESISWAAN').map(t => t.class);
-        const defaultClass = availableClasses.length > 0 ? availableClasses[0] : '';
-        setViewingClass(defaultClass);
-        setActiveTab('pantau_harian'); 
-      } else {
-        setViewingClass(selectedTeacher.class);
-        setActiveTab('siswa');
-      }
-    }
-  }, [selectedTeacher, teachers]); 
+  // --- LOGIC KELAS AKTIF (DIPERBAIKI) ---
+  // useEffect untuk otomatis switch tab DIHAPUS agar tidak me-reset saat edit data
+  // Logika inisialisasi dipindah ke handleLogin dan verifyPassword
 
   useEffect(() => {
     setStudentForm(prev => ({ ...prev, class: viewingClass }));
@@ -234,13 +224,16 @@ const App = () => {
      return months[monthIndex];
   };
 
-  // --- HANDLERS UTAMA ---
+  // --- HANDLERS UTAMA (DIPERBAIKI) ---
   const handleLogin = (teacher) => {
     if (teacher.class === 'KESISWAAN') {
       setPendingTeacher(teacher);
       setShowPasswordModal(true);
     } else {
       setSelectedTeacher(teacher);
+      // Set default untuk guru biasa saat login
+      setViewingClass(teacher.class);
+      setActiveTab('siswa');
     }
   };
 
@@ -248,6 +241,13 @@ const App = () => {
     e.preventDefault();
     if (passwordInput === '1212') {
       setSelectedTeacher(pendingTeacher);
+      
+      // Set default untuk Kesiswaan saat login
+      const availableClasses = teachers.filter(t => t.class !== 'KESISWAAN').map(t => t.class);
+      const defaultClass = availableClasses.length > 0 ? availableClasses[0] : '';
+      setViewingClass(defaultClass);
+      setActiveTab('pantau_harian');
+
       setShowPasswordModal(false);
       setPasswordInput('');
       setPendingTeacher(null);
@@ -265,11 +265,18 @@ const App = () => {
     }));
   };
 
+  // Update Data Guru & Sinkronisasi Kelas
   const handleTeacherDataUpdate = (id, field, value) => {
     if (field === 'class') {
       const oldClass = teachers.find(t => t.id === id)?.class;
       if (oldClass && oldClass !== value) {
+        // Update kelas siswa juga agar tidak hilang
         setStudents(prev => prev.map(s => s.class === oldClass ? { ...s, class: value } : s));
+        
+        // Jika sedang melihat kelas yang diedit, update juga viewingClass
+        if (viewingClass === oldClass) {
+            setViewingClass(value);
+        }
       }
     }
     setTeachers(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
@@ -398,6 +405,7 @@ const App = () => {
       }
     });
 
+    // Hapus data lama untuk tanggal & kelas ini agar tidak duplikat
     const filteredViolations = violations.filter(v => 
         !(v.date === disciplineDate && studentsInClass.some(s => s.id === v.studentId))
     );
@@ -456,6 +464,17 @@ const App = () => {
     return itemCounts;
   };
 
+  const getEffectiveDaysCount = (monthName, className) => {
+      const records = violations.filter(v => {
+        const student = students.find(s => s.id === v.studentId);
+        if (!student || student.class !== className) return false;
+        const d = new Date(v.date);
+        const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        return months[d.getMonth()] === monthName;
+      });
+      return [...new Set(records.map(r => r.date))].length || 0; 
+  };
+
   const getMonthlyClassItemStats = (monthName) => {
     const studentsInClass = getFilteredStudents();
     const itemStats = {};
@@ -483,6 +502,15 @@ const App = () => {
       localStorage.clear();
       window.location.reload();
     }
+  };
+
+  // --- UPDATE GURU NAME ONLY (For Teachers) ---
+  const updateTeacherNameOnly = () => {
+     if(tempTeacherName.trim()) {
+        setTeachers(prev => prev.map(t => t.id === selectedTeacher.id ? {...t, name: tempTeacherName} : t));
+        setSelectedTeacher({...selectedTeacher, name: tempTeacherName});
+        setIsEditingTeacher(false);
+     }
   };
 
   const GenericDateNavigator = ({ date, setDate }) => {
@@ -678,7 +706,7 @@ const App = () => {
                   ) : (
                     <div className="flex items-center gap-2">
                       <input type="text" value={tempTeacherName} onChange={(e) => setTempTeacherName(e.target.value)} className="text-sm border border-blue-300 rounded px-2 py-1 outline-none w-32" placeholder="Nama Guru" />
-                      <button onClick={updateTeacherInfo} className="bg-blue-600 text-white text-[10px] px-2 py-1 rounded">Simpan</button>
+                      <button onClick={updateTeacherNameOnly} className="bg-blue-600 text-white text-[10px] px-2 py-1 rounded">Simpan</button>
                     </div>
                   )}
                 </div>
@@ -1044,10 +1072,8 @@ const App = () => {
                         <tbody>
                           {getFilteredStudents().map((s, idx) => {
                             const studentCounts = getMonthlyItemCounts(s.id, reportMonth);
-                            // Hari dalam bulan Kalender
-                            const totalDaysInMonth = getDaysInMonth(reportMonth);
+                            const totalDaysInMonth = getDaysInMonth(reportMonth); // Menggunakan Total Hari Kalender
                             
-                            // Total stats
                             const stats = getMonthlyStats(s.id, reportMonth); 
 
                             return (
@@ -1078,7 +1104,6 @@ const App = () => {
                                     </React.Fragment>
                                   )
                                 })}
-                                {/* Removed Total Poin Cell */}
                                 <td className="border border-slate-300 px-1 py-1 text-center font-bold bg-blue-50/30 text-blue-700">
                                    {stats.percentage}%
                                 </td>
